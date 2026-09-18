@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CribIA · Detector de texto generado por IA con falsos positivos controlados</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+:root{
+  --bg:#E9EEF2; --surface:#FFFFFF; --ink:#17233A; --muted:#5B6A80; --line:#C9D3DD;
+  --hum:#2E6B5E; --hum-soft:#DCEBE6; --amb:#B7791F; --amb-soft:#F6EAD4; --ai:#A33B3B; --ai-soft:#F4DEDE;
+  --serif:"Newsreader",Georgia,"Times New Roman",serif;
+  --sans:"Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121A26; --surface:#1B2533; --ink:#E4EAF2; --muted:#98A6B8; --line:#2E3B4D;
+    --hum:#6FBFA9; --hum-soft:#1E3530; --amb:#E0A94A; --amb-soft:#3A2F1A; --ai:#E07D7D; --ai-soft:#3D2222;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--hum);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:8px;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:end}
+header h1{font-family:var(--serif);font-weight:600;font-size:clamp(2rem,4vw,3rem);line-height:1.05;margin:0}
+header p{margin:.5rem 0 0;max-width:64ch;color:var(--muted)}
+.cfg{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+.cfg label,.fld label{font-size:.82rem;color:var(--muted);display:block;margin-bottom:2px}
+input[type=text],input[type=password],input[type=number],select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:.45rem .6rem}
+textarea{width:100%;font-family:var(--serif);font-size:1rem;line-height:1.6;resize:vertical;min-height:160px}
+.btn{border:1px solid var(--ink);background:var(--ink);color:var(--surface);border-radius:4px;padding:.5rem .9rem;cursor:pointer;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink)} .btn.small{padding:.3rem .6rem;font-size:.85rem}
+.btn:disabled{opacity:.5;cursor:wait}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:.8rem 0}
+nav.tabs{display:flex;gap:0;margin:18px 0 24px;border-bottom:1px solid var(--line)}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:.6rem 1rem;cursor:pointer;font-weight:600;color:var(--muted)}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--ink)}
+.tab{display:none}.tab.on{display:block}
+h2{font-family:var(--serif);font-weight:600;font-size:1.6rem;margin:0 0 .3rem}
+h2+p{margin:0 0 1rem;color:var(--muted);max-width:74ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px;margin-bottom:16px}
+.panel h3{margin:0 0 .5rem;font-size:1rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.fld select,.fld input{width:100%}
+.muted{color:var(--muted);font-size:.88rem}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+.gens{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.9rem}
+.log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;background:var(--bg);border-radius:4px;padding:10px;max-height:220px;overflow:auto;white-space:pre-wrap}
+progress{width:100%;height:10px}
+.need{border-left:4px solid var(--amb);background:var(--amb-soft);padding:8px 12px;font-size:.9rem;margin:.6rem 0}
+.bad{border-left:4px solid var(--ai);background:var(--ai-soft);padding:8px 12px;font-size:.9rem;margin:.6rem 0}
+.ok{border-left:4px solid var(--hum);background:var(--hum-soft);padding:8px 12px;font-size:.9rem;margin:.6rem 0}
+.stats{display:flex;gap:28px;flex-wrap:wrap;margin:10px 0}
+.stats div{min-width:120px}
+.stats b{display:block;font-family:var(--serif);font-size:1.7rem;font-weight:600}
+.stats span{font-size:.85rem;color:var(--muted)}
+/* The memorable element: the window strip with the calibrated threshold */
+.verdict{font-family:var(--serif);font-size:clamp(1.6rem,3vw,2.2rem);font-weight:600;margin:.2rem 0}
+.strip{position:relative;display:flex;align-items:flex-end;gap:3px;height:160px;padding:0 0 0 0;border-bottom:1px solid var(--line);margin:18px 0 6px;overflow-x:auto}
+.strip .bar{flex:1 0 10px;min-width:10px;background:var(--hum);border-radius:2px 2px 0 0;cursor:pointer;position:relative;z-index:1}
+.strip .bar.flag{background:var(--ai)}
+.strip .bar.sel{outline:2px solid var(--ink)}
+.strip .tau{position:absolute;left:0;right:0;border-top:2px dashed var(--ink);z-index:2;pointer-events:none}
+.strip .tau span{position:absolute;right:0;top:-1.4rem;font-size:.78rem;background:var(--surface);padding:0 4px}
+.win{font-family:var(--serif);font-size:1rem;line-height:1.65;background:var(--bg);border-radius:4px;padding:12px 14px;max-height:260px;overflow:auto}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:.6rem 1rem;border-radius:4px;display:none;z-index:10;max-width:90vw}
+footer{border-top:1px solid var(--line);margin-top:40px;padding-top:16px;font-size:.85rem;color:var(--muted);max-width:90ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>CribIA</h1>
+    <p>Detector propio de texto generado por IA. Se entrena con textos humanos de tu ámbito y variantes generadas por los modelos de tu cuenta de OpenAI, y fija el umbral con una garantía estadística sobre la tasa de falsos positivos.</p>
+  </div>
+  <div class="cfg">
+    <div><label for="key">Clave de OpenAI</label><input type="password" id="key" placeholder="sk-..." style="width:170px"></div>
+    <button class="btn small ghost" id="loadModels">Cargar mis modelos</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="cal">1. Calibrar</button>
+  <button role="tab" aria-selected="false" data-tab="ana">2. Analizar</button>
+  <button role="tab" aria-selected="false" data-tab="mod">3. Detector</button>
+</nav>
+
+<section class="tab on" id="tab-cal">
+  <h2>Calibrar el detector</h2>
+  <p>El detector aprende a distinguir tus textos humanos de las versiones que producen los modelos. Cuanto más texto humano de referencia aportes, más bajo puede ser el umbral de falsos positivos que se garantiza.</p>
+  <div class="grid2">
+    <div class="panel">
+      <h3>Textos humanos de referencia</h3>
+      <p class="muted">Usa textos que sepas con certeza que son humanos y del mismo tipo que vas a analizar: mejor artículos, tesis o TFG anteriores a 2022, del mismo idioma y campo. Cada documento cuenta como una unidad al separar entrenamiento y calibración.</p>
+      <div class="row">
+        <label class="btn small ghost" style="margin:0">Subir archivos<input type="file" id="humFiles" accept=".pdf,.docx,.txt,.md,.tex" multiple hidden></label>
+        <button class="btn small ghost" id="pasteHum">Añadir texto pegado</button>
+      </div>
+      <textarea id="humPaste" style="display:none;min-height:120px" placeholder="Pega un texto humano y pulsa de nuevo «Añadir texto pegado»"></textarea>
+      <div id="docList"></div>
+    </div>
+    <div class="panel">
+      <h3>Parámetros</h3>
+      <div class="fields">
+        <div class="fld"><label for="win">Tamaño de ventana</label>
+          <select id="win"><option value="100">100 palabras</option><option value="150" selected>150 palabras</option><option value="250">250 palabras</option></select></div>
+        <div class="fld"><label for="alpha">Falsos positivos máximos por ventana</label>
+          <select id="alpha"><option value="0.05">5 %</option><option value="0.01" selected>1 %</option><option value="0.005">0,5 %</option><option value="0.001">0,1 %</option></select></div>
+        <div class="fld"><label for="cap">Ventanas humanas a transformar</label><input type="number" id="cap" value="80" min="20" max="600" step="10"></div>
+        <div class="fld"><label for="emb">Modelo de embeddings</label>
+          <select id="emb"><option>text-embedding-3-small</option><option>text-embedding-3-large</option></select></div>
+      </div>
+      <label style="font-size:.82rem;color:var(--muted);display:block;margin:12px 0 4px">Modelos generadores (se reparten al azar entre ventanas)</label>
+      <div class="gens" id="gens"></div>
+      <p class="muted" id="budget"></p>
+    </div>
+  </div>
+  <div id="needBox"></div>
+  <div class="row"><button class="btn" id="build">Construir detector</button><span class="muted" id="phase"></span></div>
+  <progress id="prog" value="0" max="1" style="display:none"></progress>
+  <div class="log" id="log" style="display:none"></div>
+</section>
+
+<section class="tab" id="tab-ana">
+  <h2>Analizar un documento</h2>
+  <p>El documento se divide en ventanas del mismo tamaño que en la calibración. Cada ventana que supera el umbral se marca; el índice es el porcentaje de palabras en ventanas marcadas.</p>
+  <div class="panel">
+    <textarea id="doc" placeholder="Pega el texto o sube el archivo"></textarea>
+    <div class="row">
+      <label class="btn ghost" style="margin:0">Subir PDF, DOCX, TXT, MD o TEX<input type="file" id="docFile" accept=".pdf,.docx,.txt,.md,.tex" hidden></label>
+      <button class="btn" id="analyze">Analizar</button>
+    </div>
+  </div>
+  <div id="result"></div>
+</section>
+
+<section class="tab" id="tab-mod">
+  <h2>Tu detector</h2>
+  <p>Métricas medidas sobre documentos que el detector no vio durante el entrenamiento. Exporta el detector para reutilizarlo en otro navegador o compartirlo con tu equipo.</p>
+  <div id="modInfo"></div>
+  <div class="row">
+    <button class="btn ghost" id="exportModel">Exportar detector</button>
+    <label class="btn ghost" style="margin:0">Importar detector<input type="file" id="importModel" accept=".json" hidden></label>
+    <button class="btn ghost" id="dropModel">Borrar detector</button>
+  </div>
+</section>
+
+<footer>CribIA · Fernando Borrás Rocher, Universidad Miguel Hernández de Elche. La garantía de falsos positivos es estadística y solo vale para textos parecidos a los de calibración (idioma, campo, género y época); fuera de ese dominio la app lo avisa y no emite veredicto firme. Ningún detector prueba por sí solo que un texto se escribió con IA: úsalo como indicio para una conversación con el autor, nunca como única base de una sanción.</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3500)};
+const words=t=>(t.trim().match(/\S+/g)||[]).length;
+const pct=(x,d=1)=>(100*x).toLocaleString('es-ES',{maximumFractionDigits:d})+' %';
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------- persistence ---------- */
+const DB={db:null,
+  open(){return new Promise((res,rej)=>{const r=indexedDB.open('cribia',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>{this.db=r.result;res()};r.onerror=()=>rej(r.error)})},
+  get(k){return new Promise(res=>{try{const r=this.db.transaction('kv').objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}})},
+  set(k,v){return new Promise(res=>{try{const tx=this.db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=()=>res(true);tx.onerror=()=>res(false)}catch(e){res(false)}})}
+};
+let DOCS=[], MODEL=null;
+
+/* ---------- utilities ---------- */
+let seed=12345;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff};
+const shuffle=a=>{const b=a.slice();for(let i=b.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[b[i],b[j]]=[b[j],b[i]]}return b};
+function windowize(text,W){const w=text.replace(/\s+/g,' ').trim().split(' ').filter(Boolean);const out=[];
+  for(let i=0;i<w.length;i+=W)out.push(w.slice(i,i+W));
+  if(out.length>1&&out[out.length-1].length<W/2){const last=out.pop();out[out.length-1]=out[out.length-1].concat(last)}
+  return out.map(a=>a.join(' ')).filter(t=>words(t)>=Math.min(40,W/2))}
+async function readFile(f){const ext=f.name.split('.').pop().toLowerCase();
+  if(ext==='pdf'){const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let out=[];
+    for(let i=1;i<=pdf.numPages;i++){const p=await pdf.getPage(i);const c=await p.getTextContent();out.push(c.items.map(it=>it.str+(it.hasEOL?'\n':' ')).join(''))}
+    return out.join('\n').replace(/-\n(?=[a-záéíóúñ])/g,'')}
+  if(ext==='docx'){return (await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()})).value}
+  return await f.text()}
+function quantile(arr,q){const s=arr.slice().sort((a,b)=>a-b);if(!s.length)return NaN;const i=Math.min(s.length-1,Math.max(0,Math.floor(q*(s.length-1))));return s[i]}
+function auc(neg,pos){if(!neg.length||!pos.length)return NaN;const all=neg.map(s=>[s,0]).concat(pos.map(s=>[s,1])).sort((a,b)=>a[0]-b[0]);
+  let r=0,sumPos=0;for(let i=0;i<all.length;){let j=i;while(j<all.length&&all[j][0]===all[i][0])j++;const avg=(i+j+1)/2;for(let k=i;k<j;k++)if(all[k][1])sumPos+=avg;i=j}
+  return (sumPos-pos.length*(pos.length+1)/2)/(pos.length*neg.length)}
+
+/* ---------- stylometric features ---------- */
+const STOCK=['cabe destacar','es importante','es crucial','es fundamental','juega un papel','desempeña un papel','en el panorama','en este contexto','en última instancia','integral','holístic','multifacétic','sin precedentes','no solo','sino también','profundizar','arrojar luz','subraya','abordar','de manera significativa','paradigma','sinergia','robust','en conclusión','en resumen','en definitiva','delve','it is important','worth noting','crucial','pivotal','landscape','multifaceted','underscore','highlight','in the realm','navigate','shed light','testament','not only','holistic','seamless','robust','leverage','foster','intricate','nuanced','in conclusion','overall','ultimately','comprehensive','notably'];
+const CONNECT=/^(además|asimismo|por otro lado|por otra parte|en este sentido|en conclusión|en resumen|no obstante|sin embargo|finalmente|moreover|furthermore|additionally|in addition|however|overall|ultimately|consequently|importantly|notably|in conclusion|in summary)\b/i;
+function stylo(t){const w=t.trim().split(/\s+/);const n=w.length||1;
+  const ss=t.split(/(?<=[.!?;])\s+/).filter(s=>words(s)>2);const L=ss.map(words);const m=L.reduce((a,b)=>a+b,0)/(L.length||1);
+  const sd=Math.sqrt(L.reduce((a,b)=>a+(b-m)**2,0)/(L.length||1));const low=t.toLowerCase();
+  let stock=0;STOCK.forEach(p=>{stock+=low.split(p).length-1});
+  const types=new Set(w.map(x=>x.toLowerCase().replace(/[^\p{L}\p{N}]/gu,''))).size;
+  return [L.length>2?sd/m:0.5, m/30, stock*100/n, ss.filter(s=>CONNECT.test(s.trim())).length/(ss.length||1),
+    (t.match(/\b[\p{L}-]+, [\p{L}-]+,? (y|e|and|or|o) [\p{L}-]+/giu)||[]).length*100/n, types/n,
+    (t.match(/,/g)||[]).length/n, w.reduce((a,x)=>a+x.length,0)/n/8, (t.match(/[—–:]/g)||[]).length*100/n]}
+
+/* ---------- OpenAI ---------- */
+const key=()=>{const k=$('#key').value.trim();if(!k)throw new Error('Falta la clave de API de OpenAI');return k};
+let CHAT_MODELS=['gpt-4o-mini','gpt-4.1-mini','gpt-4o','gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol'];
+function renderGens(){const saved=JSON.parse(localStorage.getItem('cribia_gens')||'["gpt-4o-mini"]');
+  $('#gens').innerHTML=CHAT_MODELS.map(m=>`<label><input type="checkbox" value="${esc(m)}" ${saved.includes(m)?'checked':''}> ${esc(m)}</label>`).join('');budget()}
+$('#gens').onchange=()=>{localStorage.setItem('cribia_gens',JSON.stringify(gens()));budget()};
+const gens=()=>[...document.querySelectorAll('#gens input:checked')].map(i=>i.value);
+$('#loadModels').onclick=async()=>{try{const r=await fetch('https://api.openai.com/v1/models',{headers:{Authorization:'Bearer '+key()}});if(!r.ok)throw new Error('la API respondió '+r.status);
+  const d=await r.json();const ids=d.data.map(m=>m.id);
+  const chat=ids.filter(id=>/^(gpt-4o|gpt-4\.1|gpt-5|o\d)/.test(id)&&!/(audio|realtime|tts|transcribe|image|search|embedding)/.test(id)).sort();
+  if(chat.length)CHAT_MODELS=chat;renderGens();toast(chat.length+' modelos de texto disponibles')}catch(e){toast(e.message)}};
+$('#key').oninput=()=>localStorage.setItem('ia_openai_key',$('#key').value.trim());
+async function chat(model,system,user){const body={model,messages:[{role:'system',content:system},{role:'user',content:user}]};
+  if(/^(gpt-5|o\d)/.test(model))body.max_completion_tokens=3000;else{body.max_tokens=900;body.temperature=0.9}
+  for(let a=0;a<3;a++){const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key()},body:JSON.stringify(body)});
+    if(r.status===429||r.status>=500){await new Promise(s=>setTimeout(s,2000*(a+1)));continue}
+    if(!r.ok)throw new Error(model+': la API respondió '+r.status);const d=await r.json();return (d.choices[0].message.content||'').trim()}
+  throw new Error(model+': demasiados reintentos')}
+async function embed(texts,model,onp){const out=[];for(let i=0;i<texts.length;i+=96){
+    const r=await fetch('https://api.openai.com/v1/embeddings',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key()},body:JSON.stringify({model,input:texts.slice(i,i+96)})});
+    if(!r.ok)throw new Error('Embeddings: la API respondió '+r.status);const d=await r.json();
+    d.data.sort((a,b)=>a.index-b.index).forEach(e=>{const v=Float32Array.from(e.embedding);let n=0;for(const x of v)n+=x*x;n=Math.sqrt(n)||1;for(let k=0;k<v.length;k++)v[k]/=n;out.push(v)});onp&&onp(out.length)}
+  return out}
+async function pool(tasks,n,onp){let i=0,done=0;const res=new Array(tasks.length);
+  async function worker(){while(i<tasks.length){const k=i++;try{res[k]=await tasks[k]()}catch(e){res[k]=null;log('  aviso: '+e.message)}done++;onp&&onp(done)}}
+  await Promise.all(Array.from({length:n},worker));return res}
+
+/* ---------- generation prompts ---------- */
+const P={
+ gen:W=>`Lee el fragmento, identifica su idea principal y escribe un pasaje académico ORIGINAL de unas ${W} palabras que la desarrolle, en el mismo idioma y registro. No copies frases del fragmento. Devuelve solo el pasaje, sin títulos ni comentarios.`,
+ rew:W=>`Reescribe a fondo el fragmento como lo haría un asistente de IA al que se le pide mejorarlo: reorganiza, aclara y enriquece el argumento, puedes añadir matices. Mantén el idioma y una extensión de unas ${W} palabras. Devuelve solo el texto.`,
+ proof:()=>`Corrige únicamente ortografía, gramática y puntuación del fragmento. No cambies palabras, orden ni contenido salvo para corregir errores. Devuelve solo el texto corregido.`
+};
+
+/* ---------- logistic regression (Adam, class-balanced, L2) ---------- */
+function trainLR(X,y,{epochs=250,lr=0.02,l2=1e-4}={},onp){const n=X.length,d=X[0].length;
+  const pos=y.reduce((a,b)=>a+b,0),neg=n-pos;const cw=y.map(t=>t?n/(2*pos):n/(2*neg));
+  const w=new Float32Array(d),m=new Float32Array(d+1),v=new Float32Array(d+1);let b=0;const g=new Float32Array(d);
+  for(let ep=1;ep<=epochs;ep++){g.fill(0);let gb=0;
+    for(let i=0;i<n;i++){const xi=X[i];let z=b;for(let k=0;k<d;k++)z+=w[k]*xi[k];const p=1/(1+Math.exp(-z));const e=(p-y[i])*cw[i];for(let k=0;k<d;k++)g[k]+=e*xi[k];gb+=e}
+    for(let k=0;k<=d;k++){const gk=k<d?g[k]/n+l2*w[k]:gb/n;m[k]=0.9*m[k]+0.1*gk;v[k]=0.999*v[k]+0.001*gk*gk;const mh=m[k]/(1-0.9**ep),vh=v[k]/(1-0.999**ep);const step=lr*mh/(Math.sqrt(vh)+1e-8);if(k<d)w[k]-=step;else b-=step}
+    if(onp&&ep%25===0)onp(ep/epochs)}
+  return {w:Array.from(w),b}}
+const score=(M,x)=>{let z=M.b;for(let k=0;k<x.length;k++)z+=M.w[k]*x[k];return 1/(1+Math.exp(-z))};
+function featurize(e,s,mu,sd){const x=new Float32Array(e.length+s.length);x.set(e);for(let k=0;k<s.length;k++)x[e.length+k]=(s[k]-mu[k])/(sd[k]||1)*0.15;return x}
+/* PAC conformal threshold: flag only if score > tau. With 95 % confidence over the calibration draw,
+   the false-positive rate on exchangeable human windows is <= alpha. */
+const DELTA=0.05;
+const needFor=alpha=>Math.ceil(Math.log(DELTA)/Math.log(1-alpha));
+function binomCdf(j,n,p){let lp=n*Math.log(1-p),s=Math.exp(lp);for(let i=1;i<=j;i++){lp+=Math.log((n-i+1)/i)+Math.log(p/(1-p));s+=Math.exp(lp)}return s}
+function conformal(neg,alpha){const n=neg.length;const s=neg.slice().sort((a,b)=>b-a);const need=needFor(alpha);
+  if(!n)return{tau:1,guaranteed:false,need};
+  let j=-1;while(j+1<n&&binomCdf(j+1,n,alpha)<=DELTA)j++;
+  if(j<0)return{tau:s[0],guaranteed:false,need};
+  return{tau:s[j],guaranteed:true,need}}
+
+/* ---------- calibration UI ---------- */
+async function saveDocs(){await DB.set('docs',DOCS)}
+function renderDocs(){const W=+$('#win').value;
+  if(!DOCS.length){$('#docList').innerHTML='<p class="muted">Todavía no hay textos de referencia.</p>';needBox();budget();return}
+  const tot=DOCS.reduce((a,d)=>a+d.words,0);
+  $('#docList').innerHTML=`<table><tr><th>Documento</th><th>Palabras</th><th>Ventanas</th><th></th></tr>${DOCS.map((d,i)=>`<tr><td>${esc(d.name)}</td><td>${d.words.toLocaleString('es-ES')}</td><td>${windowize(d.text,W).length}</td><td><button class="btn small ghost" data-del="${i}">Quitar</button></td></tr>`).join('')}<tr><th>Total</th><th>${tot.toLocaleString('es-ES')}</th><th>${DOCS.reduce((a,d)=>a+windowize(d.text,W).length,0)}</th><th></th></tr></table>`;
+  needBox();budget()}
+function needBox(){const W=+$('#win').value,a=+$('#alpha').value;const nWin=DOCS.reduce((s,d)=>s+windowize(d.text,W).length,0);const calEst=Math.floor(nWin*0.35);const need=needFor(a);
+  $('#needBox').innerHTML=!DOCS.length?`<div class="need">Para garantizar como máximo ${pct(a)} de falsos positivos por ventana hacen falta, con un 95 % de confianza, al menos ${need} ventanas humanas reservadas para calibración, es decir, unas ${Math.ceil(need/0.35).toLocaleString('es-ES')} ventanas de ${W} palabras en total (${(Math.ceil(need/0.35)*W).toLocaleString('es-ES')} palabras humanas).</div>`:
+   calEst>=need?`<div class="ok">Con ${nWin} ventanas humanas, unas ${calEst} quedarán reservadas para calibración: suficiente para garantizar ${pct(a)} de falsos positivos por ventana.</div>`:
+   `<div class="need">Con ${nWin} ventanas humanas quedarían unas ${calEst} para calibración y hacen falta ${need} para garantizar ${pct(a)}. Añade unas ${(Math.ceil(need/0.35)-nWin)*W>0?((Math.ceil(need/0.35)-nWin)*W).toLocaleString('es-ES'):0} palabras humanas más, sube el tamaño de ventana o relaja el objetivo. Si construyes igualmente, el umbral se fijará por encima de la puntuación humana más alta, sin garantía formal.</div>`}
+function budget(){const c=+$('#cap').value||0;$('#budget').textContent=`Unas ${Math.round(c*1.5*3)} llamadas de generación (tres variantes por ventana: generación nueva y reescritura intensa, que cuentan como IA, y corrección ortográfica, que cuenta como humano porque es un uso permitido) más los embeddings. Con gpt-4o-mini el coste es de céntimos.`}
+['#win','#alpha','#cap'].forEach(s=>$(s).onchange=()=>{renderDocs()});
+$('#humFiles').onchange=async e=>{for(const f of e.target.files){try{const t=await readFile(f);DOCS.push({name:f.name,text:t,words:words(t)})}catch(err){toast('No se pudo leer '+f.name)}}await saveDocs();renderDocs();e.target.value=''};
+$('#pasteHum').onclick=async()=>{const ta=$('#humPaste');if(ta.style.display==='none'){ta.style.display='block';ta.focus();return}
+  const t=ta.value.trim();if(words(t)<80){toast('Pega al menos 80 palabras');return}DOCS.push({name:'Texto pegado '+(DOCS.length+1),text:t,words:words(t)});ta.value='';ta.style.display='none';await saveDocs();renderDocs()};
+$('#docList').onclick=async e=>{const i=e.target.dataset.del;if(i===undefined)return;DOCS.splice(+i,1);await saveDocs();renderDocs()};
+const log=m=>{const l=$('#log');l.style.display='block';l.textContent+=m+'\n';l.scrollTop=l.scrollHeight};
+const phase=(t,v,max)=>{$('#phase').textContent=t;const p=$('#prog');p.style.display='block';p.max=max||1;p.value=v||0};
+
+/* ---------- build ---------- */
+$('#build').onclick=async()=>{
+  try{key()}catch(e){toast(e.message);return}
+  const W=+$('#win').value,alpha=+$('#alpha').value,cap=+$('#cap').value,embModel=$('#emb').value,G=gens();
+  if(!G.length){toast('Elige al menos un modelo generador');return}
+  if(DOCS.length<2){toast('Añade al menos dos documentos humanos: uno se reserva para calibrar');return}
+  const btn=$('#build');btn.disabled=true;$('#log').textContent='';seed=20260918;
+  try{
+    // 1. split by document
+    const docs=shuffle(DOCS.map((d,i)=>({i,wins:windowize(d.text,W)})).filter(d=>d.wins.length));
+    const total=docs.reduce((a,d)=>a+d.wins.length,0);let acc=0;const calDocs=[],trDocs=[];
+    for(const d of docs){(acc<total*0.35&&calDocs.length<docs.length-1?calDocs:trDocs).push(d);if(calDocs.includes(d))acc+=d.wins.length}
+    const trH=trDocs.flatMap(d=>d.wins),calH=calDocs.flatMap(d=>d.wins);
+    log(`Ventanas humanas: ${trH.length} de entrenamiento (${trDocs.length} docs) y ${calH.length} de calibración (${calDocs.length} docs).`);
+    // 2. generate variants
+    const trSrc=shuffle(trH).slice(0,cap),calSrc=shuffle(calH).slice(0,Math.round(cap/2));
+    const tasks=[],meta=[];
+    const add=(src,set)=>src.forEach(t=>['gen','rew','proof'].forEach(v=>{const m=G[Math.floor(rnd()*G.length)];meta.push({set,v,m});tasks.push(()=>chat(m,P[v](W),t))}));
+    add(trSrc,'tr');add(calSrc,'cal');
+    phase('Generando variantes con los modelos',0,tasks.length);log(`Generando ${tasks.length} variantes con ${G.join(', ')}…`);
+    const outs=await pool(tasks,5,d=>phase('Generando variantes con los modelos',d,tasks.length));
+    const V={tr:{gen:[],rew:[],proof:[]},cal:{gen:[],rew:[],proof:[]}};
+    outs.forEach((o,k)=>{if(o&&words(o)>=30)V[meta[k].set][meta[k].v].push(o.replace(/^(sure|claro|aquí tienes|here is)[^\n]*\n+/i,''))});
+    log(`Variantes válidas: ${outs.filter(Boolean).length} de ${tasks.length}.`);
+    // 3. embeddings
+    const sets={trH,trAI:[...V.tr.gen,...V.tr.rew],trP:V.tr.proof,calH,calGen:V.cal.gen,calRew:V.cal.rew,calP:V.cal.proof};
+    const all=Object.values(sets).flat();phase('Calculando embeddings',0,all.length);log(`Calculando ${all.length} embeddings con ${embModel}…`);
+    const E=await embed(all,embModel,d=>phase('Calculando embeddings',d,all.length));
+    let o=0;const EM={};for(const[k,a]of Object.entries(sets)){EM[k]=E.slice(o,o+a.length);o+=a.length}
+    // 4. features
+    const trainTexts=[...sets.trH,...sets.trP,...sets.trAI];const S0=trainTexts.map(stylo);const dS=S0[0].length;
+    const mu=Array.from({length:dS},(_,k)=>S0.reduce((a,s)=>a+s[k],0)/S0.length);
+    const sd=Array.from({length:dS},(_,k)=>Math.sqrt(S0.reduce((a,s)=>a+(s[k]-mu[k])**2,0)/S0.length)||1);
+    const F=(k)=>EM[k].map((e,i)=>featurize(e,stylo(sets[k][i]),mu,sd));
+    const X=[...F('trH'),...F('trP'),...F('trAI')];const y=[...sets.trH.map(()=>0),...sets.trP.map(()=>0),...sets.trAI.map(()=>1)];
+    phase('Entrenando',0,1);log(`Entrenando regresión logística con ${X.length} ejemplos (${y.filter(v=>v).length} IA).`);
+    await new Promise(r=>setTimeout(r,30));
+    const LR=trainLR(X,y,{},p=>phase('Entrenando',p,1));
+    // 5. calibration
+    const sc=k=>F(k).map(x=>score(LR,x));
+    const sH=sc('calH'),sP=sc('calP'),sG=sc('calGen'),sR=sc('calRew');
+    const cH=conformal(sH,alpha),cP=sP.length?conformal(sP,alpha):{tau:0,guaranteed:true};
+    const tau=Math.max(cH.tau,cP.guaranteed?cP.tau:Math.max(...sP));
+    const rec=a=>a.length?a.filter(s=>s>tau).length/a.length:NaN;
+    // domain model: similarity to human training centroid
+    const d0=EM.trH[0].length;const cen=new Float32Array(d0);EM.trH.forEach(e=>{for(let k=0;k<d0;k++)cen[k]+=e[k]});let nn=0;for(const x of cen)nn+=x*x;nn=Math.sqrt(nn);for(let k=0;k<d0;k++)cen[k]/=nn;
+    const sim=e=>{let s=0;for(let k=0;k<d0;k++)s+=e[k]*cen[k];return s};const simCal=EM.calH.map(sim);
+    MODEL={version:1,createdAt:new Date().toISOString(),window:W,alpha,embModel,generators:G,w:LR.w,b:LR.b,mu,sd,tau,guaranteed:cH.guaranteed,need:cH.need,
+      centroid:Array.from(cen),simP05:quantile(simCal,0.05),
+      metrics:{nTrainH:sets.trH.length,nTrainAI:sets.trAI.length,nTrainP:sets.trP.length,nCalH:sH.length,nCalP:sP.length,nCalGen:sG.length,nCalRew:sR.length,
+        fpH:sH.filter(s=>s>tau).length/sH.length,fpP:sP.length?sP.filter(s=>s>tau).length/sP.length:NaN,recGen:rec(sG),recRew:rec(sR),auc:auc([...sH,...sP],[...sG,...sR])},
+      docs:DOCS.map(d=>({name:d.name,words:d.words})),calDocs:calDocs.map(d=>DOCS[d.i].name)};
+    await DB.set('model',MODEL);renderModel();
+    log(`Umbral ${tau.toFixed(4)} · falsos positivos en calibración ${pct(MODEL.metrics.fpH,2)} · detección ${pct(MODEL.metrics.recGen)} (generado) y ${pct(MODEL.metrics.recRew)} (reescrito).`);
+    phase('Detector listo',1,1);toast('Detector construido');switchTab('mod');
+  }catch(e){log('Error: '+e.message);toast(e.message)}finally{btn.disabled=false}
+};
+
+/* ---------- model tab ---------- */
+function renderModel(){const M=MODEL;if(!M){$('#modInfo').innerHTML='<div class="panel"><p class="muted">Aún no hay detector. Constrúyelo en la pestaña «Calibrar» o importa uno.</p></div>';return}
+  const m=M.metrics;
+  $('#modInfo').innerHTML=`<div class="panel">
+   <div class="stats"><div><b>${pct(m.fpH,2)}</b><span>falsos positivos en ${m.nCalH} ventanas humanas no vistas</span></div>
+   <div><b>${isNaN(m.fpP)?'–':pct(m.fpP,2)}</b><span>falsos positivos en ${m.nCalP} ventanas humanas corregidas con IA</span></div>
+   <div><b>${pct(m.recGen)}</b><span>detección de texto generado (${m.nCalGen})</span></div>
+   <div><b>${pct(m.recRew)}</b><span>detección de reescritura intensa (${m.nCalRew})</span></div>
+   <div><b>${isNaN(m.auc)?'–':m.auc.toFixed(3)}</b><span>AUC</span></div></div>
+   ${M.guaranteed?`<div class="ok">Garantía conforme: con un 95 % de confianza, para textos humanos del mismo dominio la tasa de ventanas marcadas por error es como máximo ${pct(M.alpha)}.</div>`:`<div class="bad">Sin garantía formal: había menos de ${M.need} ventanas humanas de calibración, así que el umbral se fijó por encima de la puntuación humana más alta observada. Añade texto humano y reconstruye.</div>`}
+   <table><tr><th>Creado</th><td>${new Date(M.createdAt).toLocaleString('es-ES')}</td></tr><tr><th>Ventana</th><td>${M.window} palabras</td></tr><tr><th>Umbral</th><td>${M.tau.toFixed(4)}</td></tr><tr><th>Embeddings</th><td>${esc(M.embModel)}</td></tr><tr><th>Generadores</th><td>${esc(M.generators.join(', '))}</td></tr>
+   <tr><th>Entrenamiento</th><td>${m.nTrainH} humanas, ${m.nTrainP} humanas corregidas, ${m.nTrainAI} de IA</td></tr><tr><th>Documentos de calibración</th><td>${esc(M.calDocs.join('; '))}</td></tr></table>
+   <p class="muted">La detección solo se ha medido frente a los modelos generadores elegidos. Texto de otros modelos, o texto de IA editado a mano por el autor, puede pasar sin marcarse: este detector prioriza no acusar a nadie por error frente a no dejar escapar nada.</p></div>`}
+$('#exportModel').onclick=()=>{if(!MODEL){toast('No hay detector');return}const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({app:'CribIA',...MODEL})],{type:'application/json'}));a.download=`cribia-detector-${MODEL.window}w.json`;a.click()};
+$('#importModel').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.app!=='CribIA'||!d.w)throw new Error('no es un detector de CribIA');delete d.app;MODEL=d;await DB.set('model',MODEL);renderModel();toast('Detector importado')}catch(err){toast('Importación fallida: '+err.message)}e.target.value=''};
+$('#dropModel').onclick=async()=>{if(!MODEL||!confirm('Se borrará el detector de este navegador.'))return;MODEL=null;await DB.set('model',null);renderModel()};
+
+/* ---------- analysis ---------- */
+$('#docFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{$('#doc').value=await readFile(f);toast(words($('#doc').value)+' palabras cargadas')}catch(err){toast('No se pudo leer: '+err.message)}e.target.value=''};
+let LAST=null;
+$('#analyze').onclick=async()=>{if(!MODEL){toast('Primero construye o importa un detector');switchTab('cal');return}
+  const t=$('#doc').value;if(words(t)<MODEL.window){toast(`Hacen falta al menos ${MODEL.window} palabras`);return}
+  const btn=$('#analyze');btn.disabled=true;btn.textContent='Analizando…';
+  try{const wins=windowize(t,MODEL.window);const E=await embed(wins,MODEL.embModel);
+    const cen=MODEL.centroid;const res=wins.map((w,i)=>{const s=score(MODEL,featurize(E[i],stylo(w),MODEL.mu,MODEL.sd));let sim=0;for(let k=0;k<cen.length;k++)sim+=E[i][k]*cen[k];return{text:w,words:words(w),score:s,flag:s>MODEL.tau,out:sim<MODEL.simP05}});
+    LAST={date:new Date().toISOString(),res};renderResult()}
+  catch(e){toast(e.message)}finally{btn.disabled=false;btn.textContent='Analizar'}};
+function renderResult(){const R=LAST.res,M=MODEL;const tw=R.reduce((a,r)=>a+r.words,0);const fw=R.filter(r=>r.flag).reduce((a,r)=>a+r.words,0);
+  const idx=fw/tw,m=R.length,k=R.filter(r=>r.flag).length,outShare=R.filter(r=>r.out).length/m;
+  const bound=Math.min(1,M.alpha*m/Math.max(1,Math.ceil(m/2)));
+  let v,cls,expl;
+  if(outShare>0.5){v='Fuera del dominio de calibración';cls='need';expl=`El ${pct(outShare,0)} de las ventanas se parece menos a tus textos de referencia que el 95 % de las ventanas humanas de calibración. La garantía de falsos positivos no se aplica: calibra con textos de este tipo antes de sacar conclusiones.`}
+  else if(m<2){v='Texto demasiado corto para un veredicto';cls='need';expl='Hace falta más de una ventana.'}
+  else if(idx>=0.5&&k>=2){v='Uso sustancial de IA probable';cls='bad';expl=`${k} de ${m} ventanas superan el umbral. Si el texto fuera humano y del mismo dominio, la probabilidad de marcar la mitad o más de las ventanas sería como máximo ${pct(bound,2)}${M.guaranteed?'':' (cota sin garantía formal: el detector se calibró con pocas ventanas)'}.`}
+  else if(k>0){v='Indicios localizados';cls='need';expl=`${k} de ${m} ventanas superan el umbral. No basta para un veredicto sobre el documento; revisa esas ventanas y pregunta al autor por su proceso.`}
+  else{v='Sin evidencia de IA';cls='ok';expl=`Ninguna de las ${m} ventanas supera el umbral. Esto no prueba autoría humana: texto de IA editado o de modelos no incluidos en la calibración puede no detectarse.`}
+  const H=160,tauY=H*(1-M.tau);
+  $('#result').innerHTML=`<div class="panel"><p class="verdict">${v}</p><div class="${cls}">${expl}</div>
+   <div class="stats"><div><b>${pct(idx,0)}</b><span>índice de IA (palabras en ventanas marcadas)</span></div><div><b>${k}/${m}</b><span>ventanas marcadas</span></div><div><b>${pct(M.alpha)}</b><span>falsos positivos máximos por ventana</span></div></div>
+   <div class="strip" id="strip" role="list" aria-label="Puntuación por ventana">${R.map((r,i)=>`<div class="bar ${r.flag?'flag':''}" role="listitem" tabindex="0" data-i="${i}" style="height:${Math.max(3,r.score*100)}%;${r.out?'opacity:.45':''}" title="Ventana ${i+1}: ${r.score.toFixed(3)}"></div>`).join('')}<div class="tau" style="top:${tauY}px"><span>umbral</span></div></div>
+   <p class="muted">Cada barra es una ventana de ${M.window} palabras; su altura es la puntuación del detector. Las rojas superan el umbral; las translúcidas quedan fuera del dominio de calibración. Pulsa una barra para leer la ventana.</p>
+   <div id="winView"></div>
+   <div class="row"><button class="btn ghost" id="dlReport">Descargar informe</button></div></div>`;
+  $('#strip').onclick=e=>showWin(e.target.dataset.i);$('#strip').onkeydown=e=>{if(e.key==='Enter')showWin(e.target.dataset.i)};
+  $('#dlReport').onclick=()=>dlReport(v,expl,idx,k,m)}
+function showWin(i){if(i===undefined)return;const r=LAST.res[+i];document.querySelectorAll('.bar').forEach(b=>b.classList.toggle('sel',b.dataset.i===i));
+  $('#winView').innerHTML=`<h3 style="margin:1rem 0 .4rem">Ventana ${+i+1} · puntuación ${r.score.toFixed(3)} ${r.flag?'· marcada':''}${r.out?' · fuera de dominio':''}</h3><div class="win">${esc(r.text)}</div>`}
+function dlReport(v,expl,idx,k,m){const M=MODEL;
+  let md=`# Informe CribIA\n\nFecha: ${new Date(LAST.date).toLocaleString('es-ES')}\n\n## Veredicto: ${v}\n\n${expl}\n\n- Índice de IA: ${pct(idx,0)}\n- Ventanas marcadas: ${k} de ${m}\n- Falsos positivos máximos por ventana: ${pct(M.alpha)}${M.guaranteed?' (garantía conforme al 95 %)':' (sin garantía formal)'}\n- Detector: ventanas de ${M.window} palabras, ${M.embModel}, generadores ${M.generators.join(', ')}, creado el ${new Date(M.createdAt).toLocaleDateString('es-ES')}\n- Detección medida: ${pct(M.metrics.recGen)} de texto generado y ${pct(M.metrics.recRew)} de reescritura intensa\n\n## Ventanas\n\n| # | Puntuación | Marcada | Dominio | Inicio |\n|---|---|---|---|---|\n`;
+  LAST.res.forEach((r,i)=>md+=`| ${i+1} | ${r.score.toFixed(3)} | ${r.flag?'sí':'no'} | ${r.out?'fuera':'dentro'} | ${r.text.slice(0,70).replace(/\|/g,'/')}… |\n`);
+  md+=`\n> Ningún detector prueba por sí solo el uso de IA. Este informe es un indicio que debe contrastarse con el autor y, si existe, con el historial de versiones del documento.\n`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));a.download='informe-cribia.md';a.click()}
+
+/* ---------- tabs & init ---------- */
+function switchTab(t){document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+t))}
+document.querySelector('nav.tabs').onclick=e=>{if(e.target.dataset.tab)switchTab(e.target.dataset.tab)};
+(async()=>{$('#key').value=localStorage.getItem('ia_openai_key')||'';renderGens();
+  try{await DB.open();DOCS=(await DB.get('docs'))||[];MODEL=await DB.get('model')}catch(e){toast('Sin almacenamiento local: el detector se perderá al cerrar')}
+  renderDocs();renderModel()})();
+</script>
+</body>
+</html>
