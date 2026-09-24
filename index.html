@@ -1,6 +1,64 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script id="gpt6-luna-shim">
+/* gpt-6-luna: modelo por defecto con temperatura=1 (actualización sep-2026).
+   Adapta las peticiones a la API de OpenAI para la familia gpt-6:
+   temperature=1, max_tokens -> max_completion_tokens (con margen para razonamiento)
+   y reintento automático si la API rechaza algún parámetro. */
+(function(){
+  var NEW='gpt-6-luna', OLD='gpt-4o-mini';
+  try{
+    if(!localStorage.getItem('__gpt6_luna_mig_v1')){
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i), v=localStorage.getItem(k);
+        if(v===OLD||v==='"'+OLD+'"'){ localStorage.setItem(k, v.replace(OLD,NEW)); continue; }
+        if(v && v.length<20000 && v.charAt(0)==='{' && v.indexOf(OLD)>=0){
+          try{ var o=JSON.parse(v), ch=false;
+            for(var p in o){ if(o[p]===OLD){ o[p]=NEW; ch=true; } }
+            if(ch) localStorage.setItem(k, JSON.stringify(o));
+          }catch(e){}
+        }
+      }
+      localStorage.setItem('__gpt6_luna_mig_v1','1');
+    }
+  }catch(e){}
+  var of=window.fetch; if(!of) return;
+  function adapt(url,b){
+    if(!b || typeof b.model!=='string' || !/^gpt-6/.test(b.model)) return false;
+    b.temperature=1;
+    ['top_p','frequency_penalty','presence_penalty','logit_bias','logprobs','top_logprobs'].forEach(function(p){ delete b[p]; });
+    if(/chat\/completions/.test(url) && b.max_tokens!=null){
+      if(b.max_completion_tokens==null) b.max_completion_tokens=Math.min(128000, (+b.max_tokens||0)+6000);
+      delete b.max_tokens;
+    }
+    return true;
+  }
+  window.fetch=function(input,init){
+    var url=typeof input==='string'?input:(input&&input.url)||'';
+    if(!/api\.openai\.com\/v1\/(chat\/completions|responses)/.test(url) || !init || typeof init.body!=='string') return of.apply(this,arguments);
+    var b; try{ b=JSON.parse(init.body); }catch(e){ return of.apply(this,arguments); }
+    if(!adapt(url,b)) return of.apply(this,arguments);
+    var self=this, tries=0;
+    function go(){
+      var ini=Object.assign({},init,{body:JSON.stringify(b)});
+      return of.call(self,input,ini).then(function(r){
+        if(r.status!==400 || tries>=3) return r;
+        return r.clone().json().then(function(j){
+          var err=(j&&j.error)||{}, p=err.param, msg=String(err.message||'');
+          if(!p){ var m=msg.match(/'([a-z_]+)'/); if(m) p=m[1]; }
+          if(p && b.hasOwnProperty(p) && /unsupported|not supported|does not support|only the default/i.test(msg)){
+            delete b[p]; tries++; return go();
+          }
+          return r;
+        },function(){ return r; });
+      });
+    }
+    return go();
+  };
+})();
+</script>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CribIA · Detector de texto generado por IA con falsos positivos controlados</title>
@@ -207,18 +265,18 @@ function stylo(t){const w=t.trim().split(/\s+/);const n=w.length||1;
 
 /* ---------- OpenAI ---------- */
 const key=()=>{const k=$('#key').value.trim();if(!k)throw new Error('Falta la clave de API de OpenAI');return k};
-let CHAT_MODELS=['gpt-4o-mini','gpt-4.1-mini','gpt-4o','gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol'];
-function renderGens(){const saved=JSON.parse(localStorage.getItem('cribia_gens')||'["gpt-4o-mini"]');
+let CHAT_MODELS=['gpt-6-luna', 'gpt-4o-mini','gpt-4.1-mini','gpt-4o','gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol'];
+function renderGens(){const saved=JSON.parse(localStorage.getItem('cribia_gens')||'["gpt-6-luna"]');
   $('#gens').innerHTML=CHAT_MODELS.map(m=>`<label><input type="checkbox" value="${esc(m)}" ${saved.includes(m)?'checked':''}> ${esc(m)}</label>`).join('');budget()}
 $('#gens').onchange=()=>{localStorage.setItem('cribia_gens',JSON.stringify(gens()));budget()};
 const gens=()=>[...document.querySelectorAll('#gens input:checked')].map(i=>i.value);
 $('#loadModels').onclick=async()=>{try{const r=await fetch('https://api.openai.com/v1/models',{headers:{Authorization:'Bearer '+key()}});if(!r.ok)throw new Error('la API respondió '+r.status);
   const d=await r.json();const ids=d.data.map(m=>m.id);
-  const chat=ids.filter(id=>/^(gpt-4o|gpt-4\.1|gpt-5|o\d)/.test(id)&&!/(audio|realtime|tts|transcribe|image|search|embedding)/.test(id)).sort();
+  const chat=ids.filter(id=>/^(gpt-4o|gpt-4\.1|gpt-[56]|o\d)/.test(id)&&!/(audio|realtime|tts|transcribe|image|search|embedding)/.test(id)).sort();
   if(chat.length)CHAT_MODELS=chat;renderGens();toast(chat.length+' modelos de texto disponibles')}catch(e){toast(e.message)}};
 $('#key').oninput=()=>localStorage.setItem('ia_openai_key',$('#key').value.trim());
 async function chat(model,system,user){const body={model,messages:[{role:'system',content:system},{role:'user',content:user}]};
-  if(/^(gpt-5|o\d)/.test(model))body.max_completion_tokens=3000;else{body.max_tokens=900;body.temperature=0.9}
+  if(/^(gpt-[56]|o\d)/.test(model))body.max_completion_tokens=3000;else{body.max_tokens=900;body.temperature=0.9}
   for(let a=0;a<3;a++){const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key()},body:JSON.stringify(body)});
     if(r.status===429||r.status>=500){await new Promise(s=>setTimeout(s,2000*(a+1)));continue}
     if(!r.ok)throw new Error(model+': la API respondió '+r.status);const d=await r.json();return (d.choices[0].message.content||'').trim()}
@@ -272,7 +330,7 @@ function needBox(){const W=+$('#win').value,a=+$('#alpha').value;const nWin=DOCS
   $('#needBox').innerHTML=!DOCS.length?`<div class="need">Para garantizar como máximo ${pct(a)} de falsos positivos por ventana hacen falta, con un 95 % de confianza, al menos ${need} ventanas humanas reservadas para calibración, es decir, unas ${Math.ceil(need/0.35).toLocaleString('es-ES')} ventanas de ${W} palabras en total (${(Math.ceil(need/0.35)*W).toLocaleString('es-ES')} palabras humanas).</div>`:
    calEst>=need?`<div class="ok">Con ${nWin} ventanas humanas, unas ${calEst} quedarán reservadas para calibración: suficiente para garantizar ${pct(a)} de falsos positivos por ventana.</div>`:
    `<div class="need">Con ${nWin} ventanas humanas quedarían unas ${calEst} para calibración y hacen falta ${need} para garantizar ${pct(a)}. Añade unas ${(Math.ceil(need/0.35)-nWin)*W>0?((Math.ceil(need/0.35)-nWin)*W).toLocaleString('es-ES'):0} palabras humanas más, sube el tamaño de ventana o relaja el objetivo. Si construyes igualmente, el umbral se fijará por encima de la puntuación humana más alta, sin garantía formal.</div>`}
-function budget(){const c=+$('#cap').value||0;$('#budget').textContent=`Unas ${Math.round(c*1.5*3)} llamadas de generación (tres variantes por ventana: generación nueva y reescritura intensa, que cuentan como IA, y corrección ortográfica, que cuenta como humano porque es un uso permitido) más los embeddings. Con gpt-4o-mini el coste es de céntimos.`}
+function budget(){const c=+$('#cap').value||0;$('#budget').textContent=`Unas ${Math.round(c*1.5*3)} llamadas de generación (tres variantes por ventana: generación nueva y reescritura intensa, que cuentan como IA, y corrección ortográfica, que cuenta como humano porque es un uso permitido) más los embeddings. Con gpt-6-luna el coste es de céntimos.`}
 ['#win','#alpha','#cap'].forEach(s=>$(s).onchange=()=>{renderDocs()});
 $('#humFiles').onchange=async e=>{for(const f of e.target.files){try{const t=await readFile(f);DOCS.push({name:f.name,text:t,words:words(t)})}catch(err){toast('No se pudo leer '+f.name)}}await saveDocs();renderDocs();e.target.value=''};
 $('#pasteHum').onclick=async()=>{const ta=$('#humPaste');if(ta.style.display==='none'){ta.style.display='block';ta.focus();return}
